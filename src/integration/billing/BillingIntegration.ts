@@ -1,5 +1,6 @@
 import { BillingChargeInvoiceAction, BillingDataTransactionStart, BillingDataTransactionStop, BillingDataTransactionUpdate, BillingInvoice, BillingInvoiceItem, BillingInvoiceStatus, BillingOperationResult, BillingPaymentMethod, BillingTax, BillingUser, BillingUserSynchronizeAction } from '../../types/Billing';
 import FeatureToggles, { Feature } from '../../utils/FeatureToggles';
+import { FilterQuery, ObjectId } from 'mongodb';
 import User, { UserStatus } from '../../types/User';
 
 import BackendError from '../../exception/BackendError';
@@ -16,6 +17,7 @@ import TenantStorage from '../../storage/mongodb/TenantStorage';
 import Transaction from '../../types/Transaction';
 import UserStorage from '../../storage/mongodb/UserStorage';
 import Utils from '../../utils/Utils';
+import global from '../../types/GlobalType';
 import moment from 'moment';
 
 const MODULE_NAME = 'BillingIntegration';
@@ -173,7 +175,7 @@ export default abstract class BillingIntegration {
     return actionsDone;
   }
 
-  public async chargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
+  public async xchargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
     const actionsDone: BillingChargeInvoiceAction = {
       inSuccess: 0,
       inError: 0
@@ -227,6 +229,86 @@ export default abstract class BillingIntegration {
         });
       }
     }
+    return actionsDone;
+  }
+
+  public async chargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
+    const actionsDone: BillingChargeInvoiceAction = {
+      inSuccess: 0,
+      inError: 0
+    };
+    await this.checkConnection();
+    let invoices: BillingInvoice[];
+    let latestInvoiceId: ObjectId = null;
+    // Paging
+    const PAGE_SIZE = 1;
+    // Filtering
+    const filter: FilterQuery<any> = {};
+    if (this.settings.billing?.periodicBillingAllowed) {
+      filter.status = { $in: [BillingInvoiceStatus.DRAFT, BillingInvoiceStatus.OPEN] };
+    } else {
+      filter.status = { $eq: BillingInvoiceStatus.OPEN };
+    }
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // Get the invoices to process
+      let nextPageFilter: FilterQuery<any>;
+      if (latestInvoiceId) {
+        nextPageFilter = { $and: [{ _id: { $gt: new ObjectId(latestInvoiceId) } }, filter] };
+      } else {
+        nextPageFilter = filter;
+      }
+      invoices = await global.database.getCollection<any>(this.tenantID, 'invoices')
+        .find(nextPageFilter)
+        .limit(PAGE_SIZE)
+        .toArray();
+      if (Utils.isEmptyArray(invoices)) {
+        break;
+      } else {
+        const lastestInvoice = invoices[invoices.length - 1];
+        latestInvoiceId = lastestInvoice['_id'];
+      }
+      // Let's now finalize all invoices and attempt to get it paid
+      for (const invoice of invoices) {
+        try {
+          // Make sure to avoid trying to charge it again too soon
+          if (!forceOperation && moment(invoice.createdOn).isSame(moment(), 'day')) {
+            actionsDone.inSuccess++;
+            await Logging.logWarning({
+              tenantID: this.tenantID,
+              source: Constants.CENTRAL_SERVER,
+              action: ServerAction.BILLING_CHARGE_INVOICE,
+              actionOnUser: invoice.user,
+              module: MODULE_NAME, method: 'chargeInvoices',
+              message: `Invoice is too new - Operation has been skipped - '${invoice.id}'`
+            });
+            continue;
+          }
+          await this.chargeInvoice(invoice);
+          await Logging.logInfo({
+            tenantID: this.tenantID,
+            source: Constants.CENTRAL_SERVER,
+            action: ServerAction.BILLING_CHARGE_INVOICE,
+            actionOnUser: invoice.user,
+            module: MODULE_NAME, method: 'chargeInvoices',
+            message: `Successfully charged invoice '${invoice.id}'`
+          });
+          actionsDone.inSuccess++;
+        } catch (error) {
+          actionsDone.inError++;
+          await Logging.logError({
+            tenantID: this.tenantID,
+            source: Constants.CENTRAL_SERVER,
+            action: ServerAction.BILLING_CHARGE_INVOICE,
+            actionOnUser: invoice.user,
+            module: MODULE_NAME, method: 'chargeInvoices',
+            message: `Failed to charge invoice '${invoice.id}'`,
+            detailedMessages: { error: error.message, stack: error.stack }
+          });
+        }
+      }
+    }
+
     return actionsDone;
   }
 
