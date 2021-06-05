@@ -8,6 +8,7 @@ import { BillingSettings } from '../../types/Setting';
 import BillingStorage from '../../storage/mongodb/BillingStorage';
 import Constants from '../../utils/Constants';
 import { DataResult } from '../../types/DataResult';
+import DatabaseUtils from '../../storage/mongodb/DatabaseUtils';
 import Logging from '../../utils/Logging';
 import NotificationHandler from '../../notification/NotificationHandler';
 import { Request } from 'express';
@@ -232,7 +233,7 @@ export default abstract class BillingIntegration {
     return actionsDone;
   }
 
-  public async chargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
+  public async ychargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
     const actionsDone: BillingChargeInvoiceAction = {
       inSuccess: 0,
       inError: 0
@@ -240,33 +241,37 @@ export default abstract class BillingIntegration {
     await this.checkConnection();
     let invoices: BillingInvoice[];
     let latestInvoiceId: ObjectId = null;
-    // Paging
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
     const PAGE_SIZE = 1;
     // Filtering
-    const filter: FilterQuery<any> = {};
+    const mainFilter: FilterQuery<any> = {};
     if (this.settings.billing?.periodicBillingAllowed) {
-      filter.status = { $in: [BillingInvoiceStatus.DRAFT, BillingInvoiceStatus.OPEN] };
+      mainFilter.status = { $in: [BillingInvoiceStatus.DRAFT, BillingInvoiceStatus.OPEN] };
     } else {
-      filter.status = { $eq: BillingInvoiceStatus.OPEN };
+      mainFilter.status = { $eq: BillingInvoiceStatus.OPEN };
     }
     // eslint-disable-next-line no-constant-condition
     while (true) {
       // Get the invoices to process
       let nextPageFilter: FilterQuery<any>;
       if (latestInvoiceId) {
-        nextPageFilter = { $and: [{ _id: { $gt: new ObjectId(latestInvoiceId) } }, filter] };
+        nextPageFilter = { $and: [{ _id: { $gt: latestInvoiceId } }, mainFilter] };
       } else {
-        nextPageFilter = filter;
+        nextPageFilter = mainFilter;
       }
       invoices = await global.database.getCollection<any>(this.tenantID, 'invoices')
         .find(nextPageFilter)
+        .sort({ '_id': -1 }) // ObjectID is indexed and has a natural ordering - let's rely on it!
         .limit(PAGE_SIZE)
         .toArray();
       if (Utils.isEmptyArray(invoices)) {
         break;
       } else {
-        const lastestInvoice = invoices[invoices.length - 1];
-        latestInvoiceId = lastestInvoice['_id'];
+        const latestInvoice = invoices[invoices.length - 1];
+        latestInvoiceId = latestInvoice['_id'];
       }
       // Let's now finalize all invoices and attempt to get it paid
       for (const invoice of invoices) {
@@ -309,6 +314,69 @@ export default abstract class BillingIntegration {
       }
     }
 
+    return actionsDone;
+  }
+
+  public async chargeInvoices(forceOperation = false): Promise<BillingChargeInvoiceAction> {
+    const actionsDone: BillingChargeInvoiceAction = {
+      inSuccess: 0,
+      inError: 0
+    };
+    await this.checkConnection();
+    let invoices: BillingInvoice[];
+    // Filtering
+    const mainFilter: FilterQuery<any> = {};
+    if (this.settings.billing?.periodicBillingAllowed) {
+      mainFilter.status = { $in: [BillingInvoiceStatus.DRAFT, BillingInvoiceStatus.OPEN] };
+    } else {
+      mainFilter.status = { $eq: BillingInvoiceStatus.OPEN };
+    }
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      // Paginate on all invoices matching the filter
+      invoices = await DatabaseUtils.paginate(this.tenantID, 'invoices', invoices, mainFilter, async (invoice) => {
+        // Let's finalize the invoice and attempt to get it paid
+        try {
+        // Make sure to avoid trying to charge it again too soon
+          if (!forceOperation && moment(invoice.createdOn).isSame(moment(), 'day')) {
+            actionsDone.inSuccess++;
+            await Logging.logWarning({
+              tenantID: this.tenantID,
+              source: Constants.CENTRAL_SERVER,
+              action: ServerAction.BILLING_CHARGE_INVOICE,
+              actionOnUser: invoice.user,
+              module: MODULE_NAME, method: 'chargeInvoices',
+              message: `Invoice is too new - Operation has been skipped - '${invoice.id}'`
+            });
+            return;
+          }
+          await this.chargeInvoice(invoice);
+          await Logging.logInfo({
+            tenantID: this.tenantID,
+            source: Constants.CENTRAL_SERVER,
+            action: ServerAction.BILLING_CHARGE_INVOICE,
+            actionOnUser: invoice.user,
+            module: MODULE_NAME, method: 'chargeInvoices',
+            message: `Successfully charged invoice '${invoice.id}'`
+          });
+          actionsDone.inSuccess++;
+        } catch (error) {
+          actionsDone.inError++;
+          await Logging.logError({
+            tenantID: this.tenantID,
+            source: Constants.CENTRAL_SERVER,
+            action: ServerAction.BILLING_CHARGE_INVOICE,
+            actionOnUser: invoice.user,
+            module: MODULE_NAME, method: 'chargeInvoices',
+            message: `Failed to charge invoice '${invoice.id}'`,
+            detailedMessages: { error: error.message, stack: error.stack }
+          });
+        }
+      });
+      if (Utils.isEmptyArray(invoices)) {
+        break;
+      }
+    }
     return actionsDone;
   }
 

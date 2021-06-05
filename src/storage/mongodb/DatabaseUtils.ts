@@ -1,9 +1,10 @@
+import { FilterQuery, ObjectID, ObjectId } from 'mongodb';
+
 import BackendError from '../../exception/BackendError';
 import Configuration from '../../utils/Configuration';
 import Constants from '../../utils/Constants';
 import DbLookup from '../../types/database/DbLookup';
 import { OCPPFirmwareStatus } from '../../types/ocpp/OCPPServer';
-import { ObjectID } from 'mongodb';
 import Tenant from '../../types/Tenant';
 import Utils from '../../utils/Utils';
 import global from '../../types/GlobalType';
@@ -13,6 +14,35 @@ const FIXED_COLLECTIONS: string[] = ['tenants', 'migrations'];
 const MODULE_NAME = 'DatabaseUtils';
 
 export default class DatabaseUtils {
+
+  public static async paginate<T>(tenantID: string, collectionName: string, previousPageResults: Array<T>, mainFilter: FilterQuery<any>,
+      fnCallback: (entry:T) => Promise<void> = null)
+      : Promise<Array<T>> {
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
+    // Paging - TODO - Change it asap!
+    const PAGE_SIZE = 1;
+    let nextPageFilter: FilterQuery<any>;
+    if (previousPageResults?.length) {
+      const startFrom: ObjectId = previousPageResults['_id'];
+      nextPageFilter = { $and: [{ _id: { $gt: startFrom } }, mainFilter] };
+    } else {
+      nextPageFilter = mainFilter;
+    }
+    const newPageResults: Array<T> = await global.database.getCollection<any>(tenantID, collectionName)
+      .find(nextPageFilter)
+      .sort({ '_id': -1 }) // ObjectID is indexed and has a natural ordering - let's rely on it!
+      .limit(PAGE_SIZE)
+      .toArray();
+
+    if (fnCallback) {
+      for (const pageEntry of newPageResults) {
+        await fnCallback.apply(pageEntry);
+      }
+    }
+    return newPageResults;
+  }
 
   public static getFixedCollections(): string[] {
     return FIXED_COLLECTIONS;
