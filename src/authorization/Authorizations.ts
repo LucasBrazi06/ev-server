@@ -779,7 +779,7 @@ export default class Authorizations {
   }
 
   public static isSiteAdmin(user: UserToken): boolean {
-    return user.role === UserRole.BASIC && !Utils.isEmptyArray(user.sitesAdmin);
+    return user.rolesACL.includes('siteAdmin');
   }
 
   public static isSiteOwner(user: UserToken): boolean {
