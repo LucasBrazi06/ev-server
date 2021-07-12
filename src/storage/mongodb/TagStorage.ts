@@ -27,7 +27,8 @@ export default class TagStorage {
       default: Utils.convertToBoolean(tag.default),
       visualID: tag.visualID ?? new ObjectID().toHexString(),
       ocpiToken: tag.ocpiToken,
-      description: tag.description
+      description: tag.description,
+      importedData: tag.importedData
     };
     // Check Created/Last Changed By
     DatabaseUtils.addLastChangedCreatedProps(tagMDB, tag);
@@ -52,7 +53,9 @@ export default class TagStorage {
       status: importedTagToSave.status,
       errorDescription: importedTagToSave.errorDescription,
       importedOn: importedTagToSave.importedOn,
-      importedBy: importedTagToSave.importedBy
+      importedBy: importedTagToSave.importedBy,
+      siteIDs: importedTagToSave.siteIDs,
+      importedData: importedTagToSave.importedData
     };
     await global.database.getCollection<any>(tenantID, 'importedtags').findOneAndUpdate(
       { _id: tagMDB._id },
@@ -76,7 +79,9 @@ export default class TagStorage {
       status: importedTagToSave.status,
       errorDescription: importedTagToSave.errorDescription,
       importedOn: importedTagToSave.importedOn,
-      importedBy: importedTagToSave.importedBy
+      importedBy: importedTagToSave.importedBy,
+      siteIDs: importedTagToSave.siteIDs,
+      importedData: importedTagToSave.importedData
     }));
     // Insert all at once
     const result = await global.database.getCollection<any>(tenantID, 'importedtags').insertMany(

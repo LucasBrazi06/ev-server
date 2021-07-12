@@ -39,6 +39,7 @@ import UserStorage from '../../../../storage/mongodb/UserStorage';
 import UserToken from '../../../../types/UserToken';
 import UserValidator from '../validator/UserValidator';
 import Utils from '../../../../utils/Utils';
+import UtilsSecurity from './security/UtilsSecurity';
 import UtilsService from './UtilsService';
 import csvToJson from 'csvtojson/v2';
 import moment from 'moment';
@@ -82,6 +83,10 @@ export default class UserService {
     const errorCodes: Array<StartTransactionErrorCode> = [];
     // Check Billing errors
     await UserService.checkBillingErrorCodes(action, req.tenant, req.user, user, errorCodes);
+    // Add error if EULA are not accepted (use case -> at user import)
+    if (!user.eulaAcceptedOn) {
+      errorCodes.push(StartTransactionErrorCode.EULA_NOT_ACCEPTED);
+    }
     res.json({
       tag, car, errorCodes,
     });
@@ -317,8 +322,6 @@ export default class UserService {
   }
 
   public static async handleExportUsers(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
-    // Export with tags
-    req.query['WithTag'] = 'true';
     await UtilsService.exportToCSV(req, res, 'exported-users.csv',
       UserService.getUsers.bind(this),
       UserService.convertToCSV.bind(this));
@@ -482,6 +485,10 @@ export default class UserService {
               // Set default value
               user.importedBy = importedBy;
               user.importedOn = importedOn;
+              user.importedData = {
+                'autoActivateUserAtImport' : UtilsSecurity.filterBoolean(req.headers.autoactivateuseratimport),
+                'autoActivateTagAtImport' :  UtilsSecurity.filterBoolean(req.headers.autoactivatetagatimport)
+              };
               // Import
               const importSuccess = await UserService.processUser(action, req, user, usersToBeImported);
               if (!importSuccess) {
@@ -732,7 +739,7 @@ export default class UserService {
     let headers = null;
     // Header
     if (writeHeader) {
-      const headerArray = [
+      headers = [
         'id',
         'name',
         'firstName',
@@ -743,11 +750,10 @@ export default class UserService {
         'eulaAcceptedOn',
         'createdOn',
         'changedOn',
-        'changedBy'
-      ];
-      headers = headerArray.join(Constants.CSV_SEPARATOR);
+        'changedBy',
+      ].join(Constants.CSV_SEPARATOR);
     }
-    // Conten t
+    // Content
     const rows = users.map((user) => {
       const row = [
         user.id,
@@ -812,6 +818,8 @@ export default class UserService {
         name: importedUser.name.toUpperCase(),
         firstName: importedUser.firstName,
         email: importedUser.email,
+        importedData: importedUser.importedData,
+        siteIDs: importedUser.siteIDs
       };
       // Validate User data
       UserValidator.getInstance().validateImportedUserCreation(newImportedUser);
