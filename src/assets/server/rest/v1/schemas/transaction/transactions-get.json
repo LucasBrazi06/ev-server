@@ -33,12 +33,13 @@
     "UserID": {
       "$ref": "common.json#/definitions/ids"
     },
-    "TagID": {
-      "$ref": "tag.json#/definitions/ids"
+    "VisualTagID": {
+      "type": "string",
+      "sanitize": "mongo"
     },
     "StartDateTime": {
       "type": "string",
-      "format":"date-time",
+      "format": "date-time",
       "sanitize": "mongo"
     },
     "EndDateTime": {
@@ -67,7 +68,11 @@
     "Statistics": {
       "type": "string",
       "sanitize": "mongo",
-      "enum": ["refund", "history", "ongoing"]
+      "enum": [
+        "refund",
+        "history",
+        "ongoing"
+      ]
     },
     "ReportIDs": {
       "$ref": "common.json#/definitions/ids"
@@ -75,7 +80,10 @@
     "Status": {
       "type": "string",
       "sanitize": "mongo",
-      "enum": ["completed", "active"]
+      "enum": [
+        "completed",
+        "active"
+      ]
     },
     "Search": {
       "$ref": "common.json#/definitions/search"

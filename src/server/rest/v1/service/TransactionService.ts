@@ -547,8 +547,8 @@ export default class TransactionService {
     if ((await Authorizations.canListUsers(req.user)).authorized) {
       projectFields = [
         ...projectFields,
-        'userID', 'user.id', 'user.name', 'user.firstName', 'user.email', 'tagID',
-        'stop.userID', 'stop.user.id', 'stop.user.name', 'stop.user.firstName', 'stop.user.email', 'stop.tagID'
+        'userID', 'user.id', 'user.name', 'user.firstName', 'user.email',
+        'stop.userID', 'stop.user.id', 'stop.user.name', 'stop.user.firstName', 'stop.user.email', 'stop.tagID', 'tag.visualID'
       ];
     }
     // Get Transaction
@@ -690,10 +690,10 @@ export default class TransactionService {
 
   public static async handleGetTransactionsActive(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     req.query.Status = 'active';
-    const transactions = await TransactionService.getTransactions(req, action, {}, [
+    const transactions = await TransactionService.getTransactions(req, action, { withTag: true }, [
       'id', 'chargeBoxID', 'timestamp', 'issuer', 'stateOfCharge', 'timezone', 'connectorId', 'status', 'meterStart', 'siteAreaID', 'siteID', 'companyID',
       'currentTotalDurationSecs', 'currentTotalInactivitySecs', 'currentInstantWatts', 'currentTotalConsumptionWh', 'currentStateOfCharge',
-      'currentCumulatedPrice', 'currentInactivityStatus', 'roundedPrice', 'price', 'priceUnit', 'tagID', 'site.name', 'siteArea.name', 'company.name',
+      'currentCumulatedPrice', 'currentInactivityStatus', 'roundedPrice', 'price', 'priceUnit', 'tagID', 'site.name', 'siteArea.name', 'company.name', 'tag.visualID'
     ]);
     res.json(transactions);
     next();
@@ -702,11 +702,11 @@ export default class TransactionService {
   public static async handleGetTransactionsCompleted(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Get transaction
     req.query.Status = 'completed';
-    const transactions = await TransactionService.getTransactions(req, action, {}, [
+    const transactions = await TransactionService.getTransactions(req, action, { withTag: true }, [
       'id', 'chargeBoxID', 'timestamp', 'issuer', 'stateOfCharge', 'timezone', 'connectorId', 'meterStart', 'siteAreaID', 'siteID', 'companyID',
       'stop.roundedPrice', 'stop.price', 'stop.priceUnit', 'stop.inactivityStatus', 'stop.stateOfCharge', 'stop.timestamp', 'stop.totalConsumptionWh',
       'stop.totalDurationSecs', 'stop.totalInactivitySecs', 'stop.extraInactivitySecs', 'stop.meterStop', 'site.name', 'siteArea.name', 'company.name',
-      'billingData.stop.invoiceNumber', 'stop.reason', 'ocpi', 'ocpiWithCdr', 'tagID', 'stop.tagID',
+      'billingData.stop.invoiceNumber', 'stop.reason', 'ocpi', 'ocpiWithCdr', 'tagID', 'stop.tagID', 'tag.visualID'
     ]);
     res.json(transactions);
     next();
@@ -1110,7 +1110,7 @@ export default class TransactionService {
         chargeBoxIDs: filteredRequest.ChargingStationID ? filteredRequest.ChargingStationID.split('|') : null,
         issuer: Utils.objectHasProperty(filteredRequest, 'Issuer') ? filteredRequest.Issuer : null,
         userIDs: filteredRequest.UserID ? filteredRequest.UserID.split('|') : null,
-        tagIDs: filteredRequest.TagID ? filteredRequest.TagID.split('|') : null,
+        visualTagIDs: filteredRequest.VisualTagID ? filteredRequest.VisualTagID.split('|') : null,
         ownerID: Authorizations.isBasic(req.user) ? req.user.id : null,
         withSite: filteredRequest.WithSite,
         withCompany: filteredRequest.WithCompany,

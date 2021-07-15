@@ -36,6 +36,8 @@ import SiteAreaStorage from '../../../../storage/mongodb/SiteAreaStorage';
 import SiteStorage from '../../../../storage/mongodb/SiteStorage';
 import SmartChargingFactory from '../../../../integration/smart-charging/SmartChargingFactory';
 import { StatusCodes } from 'http-status-codes';
+import Tag from '../../../../types/Tag';
+import TagStorage from '../../../../storage/mongodb/TagStorage';
 import Tenant from '../../../../types/Tenant';
 import TenantComponents from '../../../../types/TenantComponents';
 import TransactionStorage from '../../../../storage/mongodb/TransactionStorage';
@@ -1193,7 +1195,7 @@ export default class ChargingStationService {
       // Remote Start Transaction
     } else if (command === Command.REMOTE_START_TRANSACTION) {
       // Check Tag ID
-      if (!filteredRequest.args || !filteredRequest.args.tagID) {
+      if (!filteredRequest.args || !filteredRequest.args.userID || !filteredRequest.args.visualTagID) {
         throw new AppError({
           source: Constants.CENTRAL_SERVER,
           errorCode: HTTPError.USER_NO_BADGE_ERROR,
@@ -1204,9 +1206,12 @@ export default class ChargingStationService {
           action: action,
         });
       }
-      // Check if user is authorized
-      const user = await Authorizations.isAuthorizedToStartTransaction(req.tenant, chargingStation, filteredRequest.args.tagID,
-        ServerAction.CHARGING_STATION_REMOTE_START_TRANSACTION, Action.REMOTE_START_TRANSACTION);
+      // Check and Get User
+      const user = await UtilsService.checkAndGetUserAuthorization(
+        req.tenant, req.user, filteredRequest.args.userID, Action.READ, action, {});
+      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+      UtilsService.assertObjectExists(action, user, `User ID '${filteredRequest.args.userID}' does not exist`,
+        MODULE_NAME, 'handleAction', req.user);
       if (!user.issuer) {
         throw new AppError({
           source: Constants.CENTRAL_SERVER,
@@ -1217,9 +1222,34 @@ export default class ChargingStationService {
           action: action
         });
       }
+      const tag = await TagStorage.getTagByVisualID(req.tenant.id, filteredRequest.args.visualTagID, { userIDs: [user.id] });
+      if (!tag) {
+        throw new AppError({
+          source: Constants.CENTRAL_SERVER,
+          errorCode: HTTPError.USER_NO_BADGE_ERROR,
+          // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+          message: `The user does not own a badge with visual ID '${filteredRequest.args.visualTagID}'`,
+          module: MODULE_NAME,
+          method: 'handleAction',
+          user: req.user,
+          action: action,
+        });
+      }
+      // Inactive Tag
+      if (!tag.active) {
+        throw new BackendError({
+          source: chargingStation.id,
+          action: action,
+          message: `Tag ID '${tag.id}' is not active`,
+          module: MODULE_NAME, method: 'handleAction',
+          user: tag.user,
+          detailedMessages: { tag }
+        });
+      }
+      await Authorizations.isChargingStationValidInOrganization(action, req.tenant, chargingStation);
       // Ok: Execute it
       result = await ChargingStationService.handleChargingStationCommand(
-        req.tenant, req.user, chargingStation, action, command, filteredRequest.args);
+        req.tenant, req.user, chargingStation, action, command, { tagID: tag.id, connectorId: filteredRequest.args.connectorId });
       // Save Car ID
       if (Utils.isComponentActiveFromToken(req.user, TenantComponents.CAR)) {
         if (result?.status === OCPPRemoteStartStopStatus.ACCEPTED) {

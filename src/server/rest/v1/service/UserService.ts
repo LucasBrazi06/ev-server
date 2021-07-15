@@ -49,32 +49,32 @@ export default class UserService {
 
   public static async handleGetUserDefaultTagCar(action: ServerAction, req: Request, res: Response, next: NextFunction): Promise<void> {
     // Filter
-    const userID = UserValidator.getInstance().validateUserGetByID(req.query).ID.toString();
-    UtilsService.assertIdIsProvided(action, userID, MODULE_NAME, 'handleGetUserDefaultTagCar', req.user);
+    const filteredRequest = UserValidator.getInstance().validateUserDefaultTagCar(req.query);
+    UtilsService.assertIdIsProvided(action, filteredRequest.UserID, MODULE_NAME, 'handleGetUserDefaultTagCar', req.user);
     // Check and Get User
     const user = await UtilsService.checkAndGetUserAuthorization(
-      req.tenant, req.user, userID, Action.READ, action);
+      req.tenant, req.user, filteredRequest.UserID, Action.READ, action);
     // Handle Tag
     // Get the default Tag
     let tag = await TagStorage.getDefaultUserTag(req.user.tenantID, user.id, {
       issuer: true
-    }, ['id', 'description', 'active']);
+    }, ['visualID', 'description', 'active']);
     if (!tag) {
       // Get the first active Tag
       tag = await TagStorage.getFirstActiveUserTag(req.user.tenantID, user.id, {
         issuer: true
-      }, ['id', 'description', 'active']);
+      }, ['visualID', 'description', 'active']);
     }
     // Handle Car
     let car: Car;
     if (Utils.isComponentActiveFromToken(req.user, TenantComponents.CAR)) {
       // Get the default Car
-      car = await CarStorage.getDefaultUserCar(req.tenant, userID, {},
+      car = await CarStorage.getDefaultUserCar(req.tenant, filteredRequest.UserID, {},
         ['id', 'type', 'licensePlate', 'carCatalog.vehicleMake', 'carCatalog.vehicleModel', 'carCatalog.vehicleModelVersion']
       );
       if (!car) {
         // Get the first available car
-        car = await CarStorage.getFirstAvailableUserCar(req.tenant, userID,
+        car = await CarStorage.getFirstAvailableUserCar(req.tenant, filteredRequest.UserID,
           ['id', 'type', 'licensePlate', 'carCatalog.vehicleMake', 'carCatalog.vehicleModel', 'carCatalog.vehicleModelVersion']
         );
       }
@@ -82,8 +82,11 @@ export default class UserService {
     const errorCodes: Array<StartTransactionErrorCode> = [];
     // Check Billing errors
     await UserService.checkBillingErrorCodes(action, req.tenant, req.user, user, errorCodes);
+    // Get authorization filters for users
+    const authorizationUsersFilters = await AuthorizationService.checkAndGetUsersAuthorizationFilters(
+      req.tenant, req.user, { SiteID: filteredRequest.SiteID });
     res.json({
-      tag, car, errorCodes,
+      tag, car, errorCodes, canListUsers: authorizationUsersFilters.authorized
     });
     next();
   }
@@ -783,7 +786,7 @@ export default class UserService {
         issuer: Utils.isBoolean(filteredRequest.Issuer) || filteredRequest.Issuer ? Utils.convertToBoolean(filteredRequest.Issuer) : null,
         siteIDs: (filteredRequest.SiteID ? filteredRequest.SiteID.split('|') : null),
         userIDs: (filteredRequest.UserID ? filteredRequest.UserID.split('|') : null),
-        tagIDs: (filteredRequest.TagID ? filteredRequest.TagID.split('|') : null),
+        visualTagIDs: (filteredRequest.VisualTagID ? filteredRequest.VisualTagID.split('|') : null),
         roles: (filteredRequest.Role ? filteredRequest.Role.split('|') : null),
         statuses: (filteredRequest.Status ? filteredRequest.Status.split('|') : null),
         excludeSiteID: filteredRequest.ExcludeSiteID,

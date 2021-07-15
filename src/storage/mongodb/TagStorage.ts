@@ -272,11 +272,12 @@ export default class TagStorage {
   }
 
   public static async getTagByVisualID(tenantID: string, visualID: string,
-      params: { withUser?: boolean; withNbrTransactions?: boolean } = {}, projectFields?: string[]): Promise<Tag> {
+      params: { withUser?: boolean; withNbrTransactions?: boolean, userIDs?: string[] } = {}, projectFields?: string[]): Promise<Tag> {
     const tagMDB = await TagStorage.getTags(tenantID, {
       visualIDs: [visualID],
       withUser: params.withUser,
       withNbrTransactions: params.withNbrTransactions,
+      userIDs: params.userIDs
     }, Constants.DB_PARAMS_SINGLE_RECORD, projectFields);
     return tagMDB.count === 1 ? tagMDB.result[0] : null;
   }
@@ -451,7 +452,8 @@ export default class TagStorage {
     return {
       count: (tagsCountMDB.length > 0 ?
         (tagsCountMDB[0].count === Constants.DB_RECORD_COUNT_CEIL ? -1 : tagsCountMDB[0].count) : 0),
-      result: tagsMDB
+      result: tagsMDB,
+      projectedFields: projectFields
     };
   }
 }
